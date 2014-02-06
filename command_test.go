@@ -136,10 +136,72 @@ func TestAdditionalCommandArgs(t *testing.T) {
 	}
 }
 
+// Test that the presence of a pre-arg will set prearg
+func TestPreargs(t *testing.T) {
+    resetForTesting("some-prearg", "command1", "--flag1=true", "somearg")
+
+	c1 := &testCmd1{}
+	On("command1", "", c1)
+    prearg := PreArg("prearg", "Some example prearg")
+	Parse()
+    if *prearg != "some-prearg" {
+        t.Error("prearg expected to be 'some-prearg'")
+    }
+	if len(args) < 1 || args[0] != "somearg" {
+		t.Error("additional command 'somearg' is expected, but can't be found")
+	}
+}
+
+// Test multiple prearg
+func TestMultiplePreargs(t *testing.T) {
+    resetForTesting("pa1", "pa2", "pa3", "command1", "--flag1=true", "somearg")
+
+	c1 := &testCmd1{}
+	On("command1", "", c1)
+    prearg1 := PreArg("prearg1", "Some example prearg")
+    prearg2 := PreArg("prearg2", "Some example prearg")
+    prearg3 := PreArg("prearg3", "Some example prearg")
+	Parse()
+    if *prearg1 != "pa1" {
+        t.Error("prearg1 expected to be 'pa1'")
+    }
+    if *prearg2 != "pa2" {
+        t.Error("prearg2 expected to be 'pa2'")
+    }
+    if *prearg3 != "pa3" {
+        t.Error("prearg3 expected to be 'pa3'")
+    }
+	if len(args) < 1 || args[0] != "somearg" {
+		t.Error("additional command 'somearg' is expected, but can't be found")
+	}
+}
+
+// Tests if subcommand runs and subcommand flags are set and preargs are set.
+func TestCommandFlagsAndPreargs(t *testing.T) {
+	resetForTesting("-global1=hello", "anotherPrearg", "command1", "-flag1=true")
+
+	flag.String("global1", "default-global1", "Description about global1")
+	c1 := &testCmd1{}
+    prearg := PreArg("pa", "this is a prearg")
+	On("command1", "", c1)
+	Parse()
+	Run()
+	if !c1.run {
+		t.Error("command 'command1' was expected to run, but it didn't")
+	}
+    if *prearg != "anotherPrearg" {
+		t.Error("prearg expected to be 'anotherPrearg'")
+    }
+	if !*c1.flag1 {
+		t.Errorf("flag1 should be set: expected true, found %v", *c1.flag1)
+	}
+}
+
 // Resets os.Args and the default flag set.
 func resetForTesting(args ...string) {
 	os.Args = append([]string{"cmd"}, args...)
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
+    clearPreArgs()
 }
 
 // testCmd1 is a test sub command.

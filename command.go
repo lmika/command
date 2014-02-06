@@ -26,6 +26,9 @@ import (
 // A map of all of the registered sub-commands.
 var cmds map[string]*cmdCont = make(map[string]*cmdCont)
 
+// Declaration of pre-args
+var preargdefs []*preArgDef = make([]*preArgDef, 0)
+
 // Matching subcommand.
 var matchingCmd *cmdCont
 
@@ -50,6 +53,12 @@ type cmdCont struct {
 	command Cmd
 }
 
+type preArgDef struct {
+    name    string
+    desc    string
+    val     string
+}
+
 // Registers a Cmd for the provided sub-command name. E.g. name is the
 // `status` in `git status`.
 func On(name, description string, command Cmd) {
@@ -58,6 +67,14 @@ func On(name, description string, command Cmd) {
 		desc:    description,
 		command: command,
 	}
+}
+
+// Registers a PreArg.  This is an argument which is read before the command.
+// Returns a string pointer which will be set after calling Parse.
+func PreArg(name, description string) *string {
+    newPreArgDef := &preArgDef{name, description, ""}
+    preargdefs = append(preargdefs, newPreArgDef)
+    return &(newPreArgDef.val)
 }
 
 // Prints the usage.
@@ -70,7 +87,13 @@ func Usage() {
 		return
 	}
 
-	fmt.Fprintf(os.Stderr, "Usage: %s <command>\n\n", program)
+	//fmt.Fprintf(os.Stderr, "Usage: %s <command>\n\n", program)
+	fmt.Fprintf(os.Stderr, "Usage: %s", program)
+    for _, preargdef := range preargdefs {
+        fmt.Fprintf(os.Stderr, " <%s>", preargdef.name)
+    }
+	fmt.Fprintf(os.Stderr, " <command>\n\n")
+
 	fmt.Fprintf(os.Stderr, "where <command> is one of:\n")
 	for name, cont := range cmds {
 		fmt.Fprintf(os.Stderr, "  %s\t%s\n", name, cont.desc)
@@ -90,6 +113,11 @@ func subcommandUsage(cont *cmdCont) {
 	fs.PrintDefaults()
 }
 
+// Clear pre-args
+func clearPreArgs() {
+    preargdefs = make([]*preArgDef, 0)
+}
+
 // Parses the flags and leftover arguments to match them with a
 // sub-command. Evaluate all of the global flags and register
 // sub-command handlers before calling it. Sub-command handler's
@@ -105,17 +133,25 @@ func Parse() {
 		return
 	}
 
+    commandNameArgN := len(preargdefs)
+    expectedArgCount := commandNameArgN + 1
+
 	flag.Usage = Usage
-	if flag.NArg() < 1 {
+	if flag.NArg() < expectedArgCount {
 		flag.Usage()
 		os.Exit(1)
 	}
 
-	name := flag.Arg(0)
+    // Read and set the preargs
+    for i, preargdef := range preargdefs {
+        preargdef.val = flag.Arg(i)
+    }
+
+	name := flag.Arg(commandNameArgN)
 	if cont, ok := cmds[name]; ok {
 		fs := cont.command.Flags(flag.NewFlagSet(name, flag.ExitOnError))
 		flagHelp = fs.Bool("h", false, "")
-		fs.Parse(flag.Args()[1:])
+		fs.Parse(flag.Args()[commandNameArgN + 1:])
 		args = fs.Args()
 		matchingCmd = cont
 	} else {
