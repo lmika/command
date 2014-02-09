@@ -197,6 +197,77 @@ func TestCommandFlagsAndPreargs(t *testing.T) {
 	}
 }
 
+// Tests try-parse
+func TestTryParse1(t *testing.T) {
+	resetForTesting("-global1=hello", "anotherPrearg", "command1", "-flag1=true")
+
+	flag.String("global1", "default-global1", "Description about global1")
+	c1 := &testCmd1{}
+    PreArg("pa", "this is a prearg")
+	On("command1", "", c1)
+	res := TryParse()
+	if res != TryParseOK {
+		t.Error("Try parse must be TryParseOK")
+	}
+}
+
+// Tests try-parse with missing prearg
+func TestTryParse2(t *testing.T) {
+	resetForTesting("-global1=hello")
+
+	g1 := flag.String("global1", "default-global1", "Description about global1")
+	c1 := &testCmd1{}
+    PreArg("pa", "this is a prearg")
+	On("command1", "", c1)
+	res := TryParse()
+	if res != TryParseNoPreArg {
+		t.Error("Try parse must be TryParseMissingPreArg")
+	}
+    if *g1 != "hello" {
+		t.Error("Global flag must be defined")
+    }
+}
+
+// Tests try-parse with missing command
+func TestTryParse3(t *testing.T) {
+	resetForTesting("-global1=hello", "prearg")
+
+	g1 := flag.String("global1", "default-global1", "Description about global1")
+	c1 := &testCmd1{}
+    prearg := PreArg("pa", "this is a prearg")
+	On("command1", "", c1)
+	res := TryParse()
+	if res != TryParseNoCommand {
+		t.Error("Try parse must be TryParseMissingPreArg")
+	}
+    if *g1 != "hello" {
+		t.Error("Global flag must be defined")
+    }
+    if *prearg != "prearg" {
+		t.Error("prearg expected to be 'prearg'")
+    }
+}
+
+// Tests try-parse with bad command
+func TestTryParse4(t *testing.T) {
+	resetForTesting("-global1=hello", "prearg", "badcommand")
+
+	g1 := flag.String("global1", "default-global1", "Description about global1")
+	c1 := &testCmd1{}
+    prearg := PreArg("pa", "this is a prearg")
+	On("command1", "", c1)
+	res := TryParse()
+	if res != TryParseInvalidCommand {
+		t.Error("Try parse must be TryParseInvalidCommand")
+	}
+    if *g1 != "hello" {
+		t.Error("Global flag must be defined")
+    }
+    if *prearg != "prearg" {
+		t.Error("prearg expected to be 'prearg'")
+    }
+}
+
 // Resets os.Args and the default flag set.
 func resetForTesting(args ...string) {
 	os.Args = append([]string{"cmd"}, args...)

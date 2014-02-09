@@ -59,6 +59,25 @@ type preArgDef struct {
     val     string
 }
 
+// TryParse result
+type TryParseResult int
+const (
+    // The command was parsed successfully
+    TryParseOK      TryParseResult  =   iota
+
+    // No pre-argument was encountered.
+    // Global flags were parsed successfully.
+    TryParseNoPreArg                =   iota
+
+    // No command was encountered.
+    // Global flags and pre-arguments were parsed successfully.
+    TryParseNoCommand               =   iota
+
+    // An undefined command name was encountered.
+    // Global flags and pre-arguments were parsed successfully.
+    TryParseInvalidCommand          =   iota
+)
+
 // Registers a Cmd for the provided sub-command name. E.g. name is the
 // `status` in `git status`.
 func On(name, description string, command Cmd) {
@@ -126,25 +145,39 @@ func clearPreArgs() {
 // don't match the configuration.
 // Global flags are accessible once Parse executes.
 func Parse() {
+    res := TryParse()
+
+    if (res != TryParseOK) {
+        flag.Usage = Usage
+        flag.Usage()
+        os.Exit(1)
+    }
+}
+
+// Like Parse() but returns a TryParseResult.
+func TryParse() TryParseResult {
 	flag.Parse()
 	// if there are no subcommands registered,
 	// return immediately
 	if len(cmds) < 1 {
-		return
+		return TryParseOK
 	}
 
     commandNameArgN := len(preargdefs)
     expectedArgCount := commandNameArgN + 1
 
-	flag.Usage = Usage
-	if flag.NArg() < expectedArgCount {
-		flag.Usage()
-		os.Exit(1)
-	}
-
     // Read and set the preargs
+	if flag.NArg() < expectedArgCount - 1 {
+        return TryParseNoPreArg
+    }
+
     for i, preargdef := range preargdefs {
         preargdef.val = flag.Arg(i)
+    }
+
+    // Read and set the commands
+	if flag.NArg() < expectedArgCount {
+        return TryParseNoCommand
     }
 
 	name := flag.Arg(commandNameArgN)
@@ -154,9 +187,9 @@ func Parse() {
 		fs.Parse(flag.Args()[commandNameArgN + 1:])
 		args = fs.Args()
 		matchingCmd = cont
+        return TryParseOK
 	} else {
-		flag.Usage()
-		os.Exit(1)
+        return TryParseInvalidCommand
 	}
 }
 
