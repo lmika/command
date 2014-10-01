@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+    "sort"
 )
 
 // A map of all of the registered sub-commands.
@@ -155,6 +156,12 @@ func Usage() {
 		return
 	}
 
+    names := make([]string, 0, len(cmds))
+    for _, cmd := range cmds {
+        names = append(names, cmd.name)
+    }
+    sort.Strings(names)
+
 	//fmt.Fprintf(os.Stderr, "Usage: %s <command>\n\n", program)
 	fmt.Fprintf(os.Stderr, "Usage: %s", program)
     for _, preargdef := range preargdefs {
@@ -163,7 +170,8 @@ func Usage() {
 	fmt.Fprintf(os.Stderr, " <command>\n\n")
 
 	fmt.Fprintf(os.Stderr, "where <command> is one of:\n")
-	for name, cont := range cmds {
+	for _, name := range names {
+        cont := cmds[name]
 		fmt.Fprintf(os.Stderr, "  %-15s %s\n", name, cont.desc)
 	}
 
@@ -195,7 +203,7 @@ func subcommandUsage(cont *cmdCont) {
 	fmt.Fprintf(os.Stderr, "Usage: %s %s", os.Args[0], cont.name)
     if (cont.minArgs != nil) {
         for _, arg := range cont.minArgs {
-            fmt.Fprintf(os.Stderr, " %s", arg)
+            fmt.Fprintf(os.Stderr, " <%s>", arg)
         }
     }
 
@@ -347,3 +355,4 @@ func (cmd CmdUsageCmd) Run(args []string) {
         cmd("help")
     }
 }
+
