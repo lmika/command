@@ -82,12 +82,12 @@ const (
 
 // Registers a Cmd for the provided sub-command name. E.g. name is the
 // `status` in `git status`.
-func On(name, description string, command Cmd, requiredFlags []string) {
+func On(name, description string, command Cmd) {
 	cmds[name] = &cmdCont{
 		name:          name,
 		desc:          description,
 		command:       command,
-		requiredFlags: requiredFlags,
+		requiredFlags: nil,
 	}
 }
 
@@ -206,9 +206,9 @@ func TryParse() TryParseResult {
 		if len(flagMap) > 0 {
 			return TryParseInvalidCommand
 		}
-		return TryParseOk
+		return TryParseOK
 	} else {
-	        return TryParseInvalidCommand
+        return TryParseInvalidCommand
 	}
 }
 
