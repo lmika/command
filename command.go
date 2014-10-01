@@ -281,7 +281,6 @@ func Parse() {
     res := TryParse()
 
     if (res != nil) {
-        fmt.Fprintf(os.Stderr, "%s: %s\n", os.Args[0], res.Error())
         res.(TryParseError).Usage()
         os.Exit(1)
     }
