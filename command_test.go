@@ -206,7 +206,7 @@ func TestTryParse1(t *testing.T) {
     PreArg("pa", "this is a prearg")
 	On("command1", "", c1)
 	res := TryParse()
-	if res != TryParseOK {
+	if res != nil {
 		t.Error("Try parse must be TryParseOK")
 	}
 }
@@ -220,7 +220,7 @@ func TestTryParse2(t *testing.T) {
     PreArg("pa", "this is a prearg")
 	On("command1", "", c1)
 	res := TryParse()
-	if res != TryParseNoPreArg {
+	if res.(TryParseError).Reason != TryParseNoPreArg {
 		t.Error("Try parse must be TryParseMissingPreArg")
 	}
     if *g1 != "hello" {
@@ -238,7 +238,7 @@ func TestTryParseWithHelpPreargOverride(t *testing.T) {
     PreArg("pa", "this is a prearg")
 	On("command1", "", c1)
 	res := TryParse()
-	if res != TryParseOK {
+	if res != nil {
 		t.Error("Try parse must be OK, was", res)
 	}
 }
@@ -252,7 +252,7 @@ func TestTryParse3(t *testing.T) {
     prearg := PreArg("pa", "this is a prearg")
 	On("command1", "", c1)
 	res := TryParse()
-	if res != TryParseNoCommand {
+	if res.(TryParseError).Reason != TryParseNoCommand {
 		t.Error("Try parse must be TryParseMissingPreArg")
 	}
     if *g1 != "hello" {
@@ -272,7 +272,7 @@ func TestTryParse4(t *testing.T) {
     prearg := PreArg("pa", "this is a prearg")
 	On("command1", "", c1)
 	res := TryParse()
-	if res != TryParseInvalidCommand {
+	if res.(TryParseError).Reason != TryParseInvalidCommand {
 		t.Error("Try parse must be TryParseInvalidCommand")
 	}
     if *g1 != "hello" {
@@ -292,7 +292,7 @@ func TestTryParseMinArgs1(t *testing.T) {
 	On("command1", "", c1).Arguments("this", "that")
 	On("command2", "", c2).Arguments("something")
 	res := TryParse()
-	if res != TryParseNotEnoughArgs {
+	if res.(TryParseError).Reason != TryParseArgError {
 		t.Error("Try parse must be TryParseNotEnoughArgs")
 	}
 }
@@ -306,7 +306,7 @@ func TestTryParseMinArgs2(t *testing.T) {
 	On("command1", "", c1).Arguments("this", "that")
 	On("command2", "", c2).Arguments("something")
 	res := TryParse()
-	if res != TryParseNotEnoughArgs {
+	if res.(TryParseError).Reason != TryParseArgError {
 		t.Error("Try parse must be TryParseNotEnoughArgs")
 	}
 }
@@ -320,7 +320,7 @@ func TestTryParseMinArgs3(t *testing.T) {
 	On("command1", "", c1).Arguments("this", "that")
 	On("command2", "", c2).Arguments("something")
 	res := TryParse()
-	if res != TryParseOK {
+	if res != nil {
 		t.Error("Try parse must be TryParseOK")
 	}
     Run()
@@ -338,12 +338,60 @@ func TestTryParseMinArgs4(t *testing.T) {
 	On("command1", "", c1).Arguments("this", "that")
 	On("command2", "", c2).Arguments("something")
 	res := TryParse()
-	if res != TryParseOK {
+	if res != nil {
 		t.Error("Try parse must be TryParseOK")
 	}
     Run()
 	if !c1.run {
 		t.Error("command 'command1' was expected to run, but it didn't")
+	}
+}
+
+// Tests try-parse with a command with too many args
+func TestTryParseArgs5(t *testing.T) {
+	resetForTesting("command1", "foo", "bar", "baz")
+
+	c1 := &testCmd1{}
+	On("command1", "", c1).Arguments("this", "that")
+	res := TryParse()
+	if res.(TryParseError).Reason != TryParseArgError {
+		t.Error("Try parse must be TryParseArgError")
+	}
+}
+
+// Tests try-parse with a command with an optional argument
+func TestTryParseArgs6(t *testing.T) {
+	resetForTesting("command1", "foo", "bar")
+
+	c1 := &testCmd1{}
+	On("command1", "", c1).Arguments("this", "that", "[other]")
+	res := TryParse()
+	if res != nil {
+		t.Error("Try parse must be TryParseOK")
+	}
+}
+
+// Tests try-parse with a command with an optional argument
+func TestTryParseArgs7(t *testing.T) {
+	resetForTesting("command1", "foo", "bar", "baz")
+
+	c1 := &testCmd1{}
+	On("command1", "", c1).Arguments("this", "that", "[other]")
+	res := TryParse()
+	if res != nil {
+		t.Error("Try parse must be TryParseOK")
+	}
+}
+
+// Tests try-parse with a command with an ellipse
+func TestTryParseArgs8(t *testing.T) {
+	resetForTesting("command1", "foo", "bar", "baz")
+
+	c1 := &testCmd1{}
+	On("command1", "", c1).Arguments("this", "...")
+	res := TryParse()
+	if res != nil {
+		t.Error("Try parse must be TryParseOK")
 	}
 }
 

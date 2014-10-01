@@ -55,12 +55,14 @@ type Cmd interface {
 	Run(args []string)
 }
 
+
+
 type cmdCont struct {
 	name          string
 	desc          string
 	command       Cmd
 	requiredFlags []string
-    minArgs       []string
+    args          cmdArgs
 }
 
 type preArgDef struct {
@@ -69,12 +71,41 @@ type preArgDef struct {
     val     string
 }
 
-// TryParse result
-type TryParseResult int
-const (
-    // The command was parsed successfully
-    TryParseOK      TryParseResult  =   iota
+// A parse error.  This is returned from `TryParse()`
+type TryParseError struct {
+    // The reason why the command line parsing failed.
+    Reason      TryParseReason
 
+    // The command the error relates to.  If the error does not relate to a command, this will be
+    // set to the empty string.
+    Command     string
+
+    // The error message string.
+    Message     string
+}
+
+func (tp TryParseError) Error() string {
+    return tp.Message
+}
+
+// Displays an appropriate usage string depending on the error raised.  If the error relates to
+// a command, this displays the command usage string.  Otherwise, this will display the program
+// usage string.
+func (tp TryParseError) Usage() {
+    fmt.Fprintf(os.Stderr, "%s: %s\n", os.Args[0], tp.Message)
+    if tp.Command != "" {
+        subcommandUsageByName(tp.Command)
+    } else {
+        Usage()
+    }
+}
+
+
+// The reason why a call to TryParse failed.  Depending on the type of error encountered, the
+// global flags and pre-arguments may or may not be available.
+type TryParseReason int
+
+const (
     // No pre-argument was encountered.
     // Global flags were parsed successfully.
     TryParseNoPreArg                =   iota
@@ -87,9 +118,9 @@ const (
     // Global flags and pre-arguments were parsed successfully.
     TryParseInvalidCommand          =   iota
 
-    // Not enough required arguments entered.
+    // Invalid argument usage.
     // Global flags and pre-arguments were parsed successfully.
-    TryParseNotEnoughArgs           =   iota
+    TryParseArgError                =   iota
 )
 
 
@@ -98,12 +129,25 @@ type CmdBuilder struct {
     cmd         *cmdCont
 }
 
-// Adds a set of arguments that the command expects.
+// Adds a set of arguments that is expected of this command.  Each element of the passed in
+// slice is an individual argument name, with the format of the name determining whether
+// or not the argument is mandatory or not.  If too many or too few arguments are present,
+// the command line parsing will fail with a `TryParseArgError` reason.
+//
+// The valid argument name formats are:
+//
+//      name    - A mandatory argument
+//      [name]  - An optional argument.  This is consumed greedily.
+//      '...'   - Indicates that more arguments are possible.
+//      
 func (cb *CmdBuilder) Arguments(args ...string) *CmdBuilder {
-    if (cb.cmd.minArgs == nil) {
-        cb.cmd.minArgs = make([]string, 0, len(args))
+    if (cb.cmd.args == nil) {
+        cb.cmd.args = make([]cmdArg, 0, len(args))
     }
-    cb.cmd.minArgs = append(cb.cmd.minArgs, args...)
+
+    for _, argstr := range args {
+        cb.cmd.args = append(cb.cmd.args, cmdArgFromString(argstr))
+    }
     return cb
 }
 
@@ -117,7 +161,7 @@ func On(name, description string, command Cmd) *CmdBuilder {
 		desc:          description,
 		command:       command,
 		requiredFlags: nil,
-        minArgs:       nil,
+        args:          nil,
 	}
 
     cmds[name] = cmd
@@ -128,7 +172,7 @@ func On(name, description string, command Cmd) *CmdBuilder {
 // When called, this frees up the '-h' flag for commands to use.
 func OnHelpShowUsage() {
     reserveHFlag = false
-    On("help", "Displays usage string of commands", CmdUsageCmd(subcommandUsageByName))
+    On("help", "Displays usage string of commands", cmdUsageCmd(subcommandUsageByName))
 }
 
 // When called, will ignore all preargs if the first argument is "help".  Useful for avoiding
@@ -201,20 +245,24 @@ func subcommandUsage(cont *cmdCont) {
 	fs := cont.command.Flags(flag.NewFlagSet(cont.name, flag.ContinueOnError))
 
 	fmt.Fprintf(os.Stderr, "Usage: %s %s", os.Args[0], cont.name)
-    if (cont.minArgs != nil) {
-        for _, arg := range cont.minArgs {
-            fmt.Fprintf(os.Stderr, " <%s>", arg)
+    if (cont.args != nil) {
+        for _, arg := range cont.args {
+            fmt.Fprintf(os.Stderr, " %s", arg.name)
         }
     }
-
 	fmt.Fprintf(os.Stderr, "\n\n")
-	fmt.Fprintf(os.Stderr, "Available flags:\n")
-	// should only output sub command flags, ignore h flag.
-	fs.PrintDefaults()
-	if len(cont.requiredFlags) > 0 {
-		fmt.Fprintf(os.Stderr, "\nRequired flags:\n")
-		fmt.Fprintf(os.Stderr, "  %s\n\n", strings.Join(cont.requiredFlags, ", "))
-	}
+
+    flagCount := 0
+    fs.Visit(func(_ *flag.Flag) { flagCount++ })
+
+    if (flagCount > 0) {
+        fmt.Fprintf(os.Stderr, "Available flags:\n")
+        fs.PrintDefaults()
+	    if len(cont.requiredFlags) > 0 {
+		    fmt.Fprintf(os.Stderr, "\nRequired flags:\n")
+            fmt.Fprintf(os.Stderr, "  %s\n\n", strings.Join(cont.requiredFlags, ", "))
+	    }
+    }
 }
 
 // Clear pre-args
@@ -232,20 +280,16 @@ func clearPreArgs() {
 func Parse() {
     res := TryParse()
 
-    if (res != TryParseOK) {
-        if (res == TryParseNotEnoughArgs) {
-            fmt.Fprintf(os.Stderr, "%s: not enough args to %s\n", os.Args[0], matchingCmd.name)
-            subcommandUsage(matchingCmd)
-        } else {
-            flag.Usage = Usage
-            flag.Usage()
-        }
+    if (res != nil) {
+        fmt.Fprintf(os.Stderr, "%s: %s\n", os.Args[0], res.Error())
+        res.(TryParseError).Usage()
         os.Exit(1)
     }
 }
 
-// Like Parse() but returns a TryParseResult.
-func TryParse() TryParseResult {
+// Like Parse() but will return an error if there was a problem parsing the flag without
+// displaying the usage and exiting.
+func TryParse() error {
     var expectedArgCount int = 1
     var commandNameArgN int = 0
 
@@ -253,7 +297,7 @@ func TryParse() TryParseResult {
 	// if there are no subcommands registered,
 	// return immediately
 	if len(cmds) < 1 {
-		return TryParseOK
+		return nil
 	}
 
 
@@ -264,7 +308,7 @@ func TryParse() TryParseResult {
         commandNameArgN = len(preargdefs)
         expectedArgCount = commandNameArgN + 1
         if flag.NArg() < expectedArgCount - 1 {
-            return TryParseNoPreArg
+            return TryParseError{TryParseNoPreArg, "", fmt.Sprintf("expected %d argument(s) before command", expectedArgCount - 1)}
         }
 
         for i, preargdef := range preargdefs {
@@ -274,7 +318,7 @@ func TryParse() TryParseResult {
 
     // Read and set the commands
 	if flag.NArg() < expectedArgCount {
-        return TryParseNoCommand
+        return TryParseError{TryParseNoCommand, "", "missing command"}
     }
 
 	name := flag.Arg(commandNameArgN)
@@ -296,18 +340,20 @@ func TryParse() TryParseResult {
 			delete(flagMap, f.Name)
 		})
 		if len(flagMap) > 0 {
-			return TryParseInvalidCommand
+			return TryParseError{TryParseInvalidCommand, name, name + ": missing required flags"}
 		}
 
-        // If the command declares a minimum number of args, check that the argument count
-        // matches.
-        if (cont.minArgs != nil) && (len(args) < len(cont.minArgs)) {
-            return TryParseNotEnoughArgs
+        // Validate the arguments
+        if (cont.args != nil) {
+            err := cont.args.Validate(args)
+            if err != nil {
+                return TryParseError{TryParseArgError, name, name + ": " + err.Error()}
+            }
         }
 
-		return TryParseOK
+		return nil
 	} else {
-        return TryParseInvalidCommand
+        return TryParseError{TryParseInvalidCommand, "", "invalid command: " + name}
 	}
 }
 
@@ -340,13 +386,13 @@ func numOfGlobalFlags() (count int) {
 // Builtin command for displaying the usage of other commands.
 //
 
-type CmdUsageCmd    func(cmd string)
+type cmdUsageCmd    func(cmd string)
 
-func (cmd CmdUsageCmd) Flags(fs *flag.FlagSet) *flag.FlagSet {
+func (cmd cmdUsageCmd) Flags(fs *flag.FlagSet) *flag.FlagSet {
     return fs
 }
 
-func (cmd CmdUsageCmd) Run(args []string) {
+func (cmd cmdUsageCmd) Run(args []string) {
     if (len(args) == 0) {
         Usage()
     } else if (len(args) == 1) {
@@ -356,3 +402,59 @@ func (cmd CmdUsageCmd) Run(args []string) {
     }
 }
 
+// -----------------------------------------------------------------
+// Command arguments
+
+type cmdArgType     int
+const (
+    atMandatory     cmdArgType  =   iota
+    atOptional      cmdArgType  =   iota
+    atEllipse       cmdArgType  =   iota
+)
+
+type cmdArg struct {
+    name          string
+    argType       cmdArgType
+}
+
+// Returns a cmdArgs structure from a string
+func cmdArgFromString(argPattern string) cmdArg {
+    if (argPattern == "...") {
+        return cmdArg{argPattern, atEllipse}
+    } else if (argPattern[0] == '[') && (argPattern[len(argPattern)-1] == ']') {
+        return cmdArg{argPattern, atOptional}
+    } else {
+        return cmdArg{"<" + argPattern + ">", atMandatory}
+    }
+}
+
+// A collection of cmd arguments
+type cmdArgs    []cmdArg
+
+// Validates the parsed command line arguments.
+func (ca cmdArgs) Validate(args []string) error {
+    for _, a := range ca {
+        switch a.argType {
+        case atMandatory:
+            if len(args) == 0 {
+                return fmt.Errorf("too few arguments")
+            }
+            // 'consume' the argument
+            args = args[1:]
+        case atOptional:
+            // Only 'consume' the argument if there are some arguments remaining
+            if len(args) > 0 {
+                args = args[1:]
+            }
+        case atEllipse:
+            // Consume the remaining arguments
+            args = args[0:0]
+        }
+    }
+
+    if (len(args) != 0) {
+        return fmt.Errorf("too many arguments")
+    } else {
+        return nil
+    }
+}
