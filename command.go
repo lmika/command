@@ -59,6 +59,7 @@ type cmdCont struct {
 	desc          string
 	command       Cmd
 	requiredFlags []string
+    minArgs       []string
 }
 
 type preArgDef struct {
@@ -84,17 +85,42 @@ const (
     // An undefined command name was encountered.
     // Global flags and pre-arguments were parsed successfully.
     TryParseInvalidCommand          =   iota
+
+    // Not enough required arguments entered.
+    // Global flags and pre-arguments were parsed successfully.
+    TryParseNotEnoughArgs           =   iota
 )
 
+
+// Provides configuration operations for Cmds.
+type CmdBuilder struct {
+    cmd         *cmdCont
+}
+
+// Adds a set of arguments that the command expects.
+func (cb *CmdBuilder) Arguments(args ...string) *CmdBuilder {
+    if (cb.cmd.minArgs == nil) {
+        cb.cmd.minArgs = make([]string, 0, len(args))
+    }
+    cb.cmd.minArgs = append(cb.cmd.minArgs, args...)
+    return cb
+}
+
 // Registers a Cmd for the provided sub-command name. E.g. name is the
-// `status` in `git status`.
-func On(name, description string, command Cmd) {
-	cmds[name] = &cmdCont{
+// `status` in `git status`.  Returns a CmdBuilder which can be used to further
+// configure the specific command.
+func On(name, description string, command Cmd) *CmdBuilder {
+    var cmd *cmdCont
+	cmd = &cmdCont{
 		name:          name,
 		desc:          description,
 		command:       command,
 		requiredFlags: nil,
+        minArgs:       nil,
 	}
+
+    cmds[name] = cmd
+    return &CmdBuilder{cmd}
 }
 
 // Registers a help command which will display the usage string of other commands.
@@ -105,7 +131,8 @@ func OnHelpShowUsage() {
 }
 
 // When called, will ignore all preargs if the first argument is "help".  Useful for avoiding
-// the need for a prearg to show the subcommand usage.
+// the need for a prearg to show the subcommand usage.  When used, all prearguments will be
+// set to the empty string.
 func OnHelpIgnorePreargs() {
     helpPreargOverride = true
 }
@@ -162,10 +189,19 @@ func subcommandUsageByName(cmdName string) {
 
 func subcommandUsage(cont *cmdCont) {
 	fmt.Fprintf(os.Stderr, "%s\n\n", cont.desc)
-	fmt.Fprintf(os.Stderr, "Usage: %s %s\n\n", os.Args[0], cont.name)
+
+	fs := cont.command.Flags(flag.NewFlagSet(cont.name, flag.ContinueOnError))
+
+	fmt.Fprintf(os.Stderr, "Usage: %s %s", os.Args[0], cont.name)
+    if (cont.minArgs != nil) {
+        for _, arg := range cont.minArgs {
+            fmt.Fprintf(os.Stderr, " %s", arg)
+        }
+    }
+
+	fmt.Fprintf(os.Stderr, "\n\n")
 	fmt.Fprintf(os.Stderr, "Available flags:\n")
 	// should only output sub command flags, ignore h flag.
-	fs := cont.command.Flags(flag.NewFlagSet(cont.name, flag.ContinueOnError))
 	fs.PrintDefaults()
 	if len(cont.requiredFlags) > 0 {
 		fmt.Fprintf(os.Stderr, "\nRequired flags:\n")
@@ -189,8 +225,13 @@ func Parse() {
     res := TryParse()
 
     if (res != TryParseOK) {
-        flag.Usage = Usage
-        flag.Usage()
+        if (res == TryParseNotEnoughArgs) {
+            fmt.Fprintf(os.Stderr, "%s: not enough args to %s\n", os.Args[0], matchingCmd.name)
+            subcommandUsage(matchingCmd)
+        } else {
+            flag.Usage = Usage
+            flag.Usage()
+        }
         os.Exit(1)
     }
 }
@@ -249,6 +290,13 @@ func TryParse() TryParseResult {
 		if len(flagMap) > 0 {
 			return TryParseInvalidCommand
 		}
+
+        // If the command declares a minimum number of args, check that the argument count
+        // matches.
+        if (cont.minArgs != nil) && (len(args) < len(cont.minArgs)) {
+            return TryParseNotEnoughArgs
+        }
+
 		return TryParseOK
 	} else {
         return TryParseInvalidCommand

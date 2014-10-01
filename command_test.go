@@ -283,6 +283,70 @@ func TestTryParse4(t *testing.T) {
     }
 }
 
+// Tests try-parse with a command missing minimum arguments
+func TestTryParseMinArgs1(t *testing.T) {
+	resetForTesting("command1")
+
+	c1 := &testCmd1{}
+	c2 := &testCmd1{}
+	On("command1", "", c1).Arguments("this", "that")
+	On("command2", "", c2).Arguments("something")
+	res := TryParse()
+	if res != TryParseNotEnoughArgs {
+		t.Error("Try parse must be TryParseNotEnoughArgs")
+	}
+}
+
+// Tests try-parse with a command missing minimum arguments
+func TestTryParseMinArgs2(t *testing.T) {
+	resetForTesting("command1", "fla")
+
+	c1 := &testCmd1{}
+	c2 := &testCmd1{}
+	On("command1", "", c1).Arguments("this", "that")
+	On("command2", "", c2).Arguments("something")
+	res := TryParse()
+	if res != TryParseNotEnoughArgs {
+		t.Error("Try parse must be TryParseNotEnoughArgs")
+	}
+}
+
+// Tests try-parse with a command missing minimum arguments
+func TestTryParseMinArgs3(t *testing.T) {
+	resetForTesting("command2", "fla")
+
+	c1 := &testCmd1{}
+	c2 := &testCmd1{}
+	On("command1", "", c1).Arguments("this", "that")
+	On("command2", "", c2).Arguments("something")
+	res := TryParse()
+	if res != TryParseOK {
+		t.Error("Try parse must be TryParseOK")
+	}
+    Run()
+	if !c2.run {
+		t.Error("command 'command2' was expected to run, but it didn't")
+	}
+}
+
+// Tests try-parse with a command missing minimum arguments
+func TestTryParseMinArgs4(t *testing.T) {
+	resetForTesting("command1", "foo", "bar")
+
+	c1 := &testCmd1{}
+	c2 := &testCmd2{}
+	On("command1", "", c1).Arguments("this", "that")
+	On("command2", "", c2).Arguments("something")
+	res := TryParse()
+	if res != TryParseOK {
+		t.Error("Try parse must be TryParseOK")
+	}
+    Run()
+	if !c1.run {
+		t.Error("command 'command1' was expected to run, but it didn't")
+	}
+}
+
 // Resets os.Args and the default flag set.
 func resetForTesting(args ...string) {
 	os.Args = append([]string{"cmd"}, args...)
