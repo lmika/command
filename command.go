@@ -21,6 +21,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // A map of all of the registered sub-commands.
@@ -48,9 +49,10 @@ type Cmd interface {
 }
 
 type cmdCont struct {
-	name    string
-	desc    string
-	command Cmd
+	name          string
+	desc          string
+	command       Cmd
+	requiredFlags []string
 }
 
 type preArgDef struct {
@@ -80,11 +82,12 @@ const (
 
 // Registers a Cmd for the provided sub-command name. E.g. name is the
 // `status` in `git status`.
-func On(name, description string, command Cmd) {
+func On(name, description string, command Cmd, requiredFlags []string) {
 	cmds[name] = &cmdCont{
-		name:    name,
-		desc:    description,
-		command: command,
+		name:          name,
+		desc:          description,
+		command:       command,
+		requiredFlags: requiredFlags,
 	}
 }
 
@@ -115,7 +118,7 @@ func Usage() {
 
 	fmt.Fprintf(os.Stderr, "where <command> is one of:\n")
 	for name, cont := range cmds {
-		fmt.Fprintf(os.Stderr, "  %s\t%s\n", name, cont.desc)
+		fmt.Fprintf(os.Stderr, "  %-15s %s\n", name, cont.desc)
 	}
 
 	if numOfGlobalFlags() > 0 {
@@ -130,6 +133,10 @@ func subcommandUsage(cont *cmdCont) {
 	// should only output sub command flags, ignore h flag.
 	fs := matchingCmd.command.Flags(flag.NewFlagSet(cont.name, flag.ContinueOnError))
 	fs.PrintDefaults()
+	if len(cont.requiredFlags) > 0 {
+		fmt.Fprintf(os.Stderr, "\nrequired flags:\n")
+		fmt.Fprintf(os.Stderr, "  %s\n\n", strings.Join(cont.requiredFlags, ", "))
+	}
 }
 
 // Clear pre-args
@@ -187,9 +194,21 @@ func TryParse() TryParseResult {
 		fs.Parse(flag.Args()[commandNameArgN + 1:])
 		args = fs.Args()
 		matchingCmd = cont
-        return TryParseOK
+
+		// Check for required flags.
+		flagMap := make(map[string]bool)
+		for _, flagName := range cont.requiredFlags {
+			flagMap[flagName] = true
+		}
+		fs.Visit(func(f *flag.Flag) {
+			delete(flagMap, f.Name)
+		})
+		if len(flagMap) > 0 {
+			return TryParseInvalidCommand
+		}
+		return TryParseOk
 	} else {
-        return TryParseInvalidCommand
+	        return TryParseInvalidCommand
 	}
 }
 
@@ -213,7 +232,7 @@ func ParseAndRun() {
 
 // Returns the total number of globally registered flags.
 func numOfGlobalFlags() (count int) {
-	flag.CommandLine.VisitAll(func(flag *flag.Flag) {
+	flag.VisitAll(func(flag *flag.Flag) {
 		count++
 	})
 	return
