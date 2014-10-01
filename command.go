@@ -253,7 +253,7 @@ func subcommandUsage(cont *cmdCont) {
 	fmt.Fprintf(os.Stderr, "\n\n")
 
     flagCount := 0
-    fs.Visit(func(_ *flag.Flag) { flagCount++ })
+    fs.VisitAll(func(_ *flag.Flag) { flagCount++ })
 
     if (flagCount > 0) {
         fmt.Fprintf(os.Stderr, "Available flags:\n")
