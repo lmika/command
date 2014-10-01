@@ -38,7 +38,13 @@ var args []string
 
 // Flag to determine whether help is
 // asked for subcommand or not
-var flagHelp *bool
+var flagHelp *bool = nil
+
+// Indicates whether or not the -h flag is used for command usage.
+// If the OnHelpShowUsage() is called, this will be set to false.
+var reserveHFlag bool = true
+
+var helpPreargOverride bool = false
 
 // Cmd represents a sub command, allowing to define subcommand
 // flags and runnable to run once arguments match the subcommand
@@ -91,6 +97,19 @@ func On(name, description string, command Cmd) {
 	}
 }
 
+// Registers a help command which will display the usage string of other commands.
+// When called, this frees up the '-h' flag for commands to use.
+func OnHelpShowUsage() {
+    reserveHFlag = false
+    On("help", "Displays usage string of commands", CmdUsageCmd(subcommandUsageByName))
+}
+
+// When called, will ignore all preargs if the first argument is "help".  Useful for avoiding
+// the need for a prearg to show the subcommand usage.
+func OnHelpIgnorePreargs() {
+    helpPreargOverride = true
+}
+
 // Registers a PreArg.  This is an argument which is read before the command.
 // Returns a string pointer which will be set after calling Parse.
 func PreArg(name, description string) *string {
@@ -125,16 +144,31 @@ func Usage() {
 		fmt.Fprintf(os.Stderr, "\navailable flags:\n")
 		flag.PrintDefaults()
 	}
-	fmt.Fprintf(os.Stderr, "\n%s <command> -h for subcommand help\n", program)
+    if (reserveHFlag) {
+        fmt.Fprintf(os.Stderr, "\n%s <command> -h for subcommand help\n", program)
+    }
+}
+
+func subcommandUsageByName(cmdName string) {
+    cont, hasCont := cmds[cmdName]
+    if hasCont {
+        subcommandUsage(cont)
+    } else {
+        fmt.Fprintf(os.Stderr, "unreognised command: %s\n", cmdName)
+        Usage()
+        os.Exit(1)
+    }
 }
 
 func subcommandUsage(cont *cmdCont) {
-	fmt.Fprintf(os.Stderr, "Usage of %s %s:\n", os.Args[0], cont.name)
+	fmt.Fprintf(os.Stderr, "%s\n\n", cont.desc)
+	fmt.Fprintf(os.Stderr, "Usage: %s %s\n\n", os.Args[0], cont.name)
+	fmt.Fprintf(os.Stderr, "Available flags:\n")
 	// should only output sub command flags, ignore h flag.
-	fs := matchingCmd.command.Flags(flag.NewFlagSet(cont.name, flag.ContinueOnError))
+	fs := cont.command.Flags(flag.NewFlagSet(cont.name, flag.ContinueOnError))
 	fs.PrintDefaults()
 	if len(cont.requiredFlags) > 0 {
-		fmt.Fprintf(os.Stderr, "\nrequired flags:\n")
+		fmt.Fprintf(os.Stderr, "\nRequired flags:\n")
 		fmt.Fprintf(os.Stderr, "  %s\n\n", strings.Join(cont.requiredFlags, ", "))
 	}
 }
@@ -163,6 +197,9 @@ func Parse() {
 
 // Like Parse() but returns a TryParseResult.
 func TryParse() TryParseResult {
+    var expectedArgCount int = 1
+    var commandNameArgN int = 0
+
 	flag.Parse()
 	// if there are no subcommands registered,
 	// return immediately
@@ -170,16 +207,20 @@ func TryParse() TryParseResult {
 		return TryParseOK
 	}
 
-    commandNameArgN := len(preargdefs)
-    expectedArgCount := commandNameArgN + 1
 
     // Read and set the preargs
-	if flag.NArg() < expectedArgCount - 1 {
-        return TryParseNoPreArg
-    }
+    consumePreargs := (helpPreargOverride && !((flag.NArg() > 0) && (flag.Arg(0) == "help"))) || !helpPreargOverride
 
-    for i, preargdef := range preargdefs {
-        preargdef.val = flag.Arg(i)
+    if consumePreargs {
+        commandNameArgN = len(preargdefs)
+        expectedArgCount = commandNameArgN + 1
+        if flag.NArg() < expectedArgCount - 1 {
+            return TryParseNoPreArg
+        }
+
+        for i, preargdef := range preargdefs {
+            preargdef.val = flag.Arg(i)
+        }
     }
 
     // Read and set the commands
@@ -190,7 +231,9 @@ func TryParse() TryParseResult {
 	name := flag.Arg(commandNameArgN)
 	if cont, ok := cmds[name]; ok {
 		fs := cont.command.Flags(flag.NewFlagSet(name, flag.ExitOnError))
-		flagHelp = fs.Bool("h", false, "")
+        if (reserveHFlag) {
+            flagHelp = fs.Bool("h", false, "")
+        }
 		fs.Parse(flag.Args()[commandNameArgN + 1:])
 		args = fs.Args()
 		matchingCmd = cont
@@ -216,7 +259,7 @@ func TryParse() TryParseResult {
 // registered, it silently returns.
 func Run() {
 	if matchingCmd != nil {
-		if *flagHelp {
+		if (flagHelp != nil) && (*flagHelp) {
 			subcommandUsage(matchingCmd)
 			return
 		}
@@ -236,4 +279,23 @@ func numOfGlobalFlags() (count int) {
 		count++
 	})
 	return
+}
+
+// Builtin command for displaying the usage of other commands.
+//
+
+type CmdUsageCmd    func(cmd string)
+
+func (cmd CmdUsageCmd) Flags(fs *flag.FlagSet) *flag.FlagSet {
+    return fs
+}
+
+func (cmd CmdUsageCmd) Run(args []string) {
+    if (len(args) == 0) {
+        Usage()
+    } else if (len(args) == 1) {
+        cmd(args[0])
+    } else {
+        cmd("help")
+    }
 }

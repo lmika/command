@@ -228,6 +228,21 @@ func TestTryParse2(t *testing.T) {
     }
 }
 
+// Tests try-parse with missing prearg but using the help override
+func TestTryParseWithHelpPreargOverride(t *testing.T) {
+	resetForTesting("help")
+
+	c1 := &testCmd1{}
+    OnHelpIgnorePreargs()
+    OnHelpShowUsage()
+    PreArg("pa", "this is a prearg")
+	On("command1", "", c1)
+	res := TryParse()
+	if res != TryParseOK {
+		t.Error("Try parse must be OK, was", res)
+	}
+}
+
 // Tests try-parse with missing command
 func TestTryParse3(t *testing.T) {
 	resetForTesting("-global1=hello", "prearg")
@@ -273,6 +288,8 @@ func resetForTesting(args ...string) {
 	os.Args = append([]string{"cmd"}, args...)
 	flag.CommandLine = flag.NewFlagSet(os.Args[0], flag.ContinueOnError)
     clearPreArgs()
+    reserveHFlag = true
+    helpPreargOverride = false
 }
 
 // testCmd1 is a test sub command.
